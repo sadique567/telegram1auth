@@ -1,6 +1,13 @@
 import crypto from "crypto";
 
 export default function handler(req, res) {
+
+  // 🔍 DEBUG LINE — YAHAN ADD KARO
+  console.log(
+    "BOT_TOKEN:",
+    process.env.BOT_TOKEN ? "FOUND" : "NOT FOUND"
+  );
+
   if (req.method !== "POST") {
     return res.status(405).json({ success: false });
   }
