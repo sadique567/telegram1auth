@@ -4,7 +4,7 @@ import session from "express-session";
 import crypto from "crypto";
 import cors from "cors";
 import dotenv from "dotenv";
-import User from "./models/User.js";
+import User from "./model/user.js";
 
 dotenv.config();
 const app = express();
