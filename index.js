@@ -25,7 +25,7 @@ app.use(
 
 app.use(express.json());
 
-app.use(express.json());
+
 app.use(express.urlencoded({ extended: true }));
 
 /* 🔐 SESSION (PHP session equivalent) */
@@ -46,12 +46,19 @@ app.use(
 function checkTelegramAuthorization(authData) {
   const hash = authData.hash;
   delete authData.hash;
+/*
+  // const dataCheckString = Object.keys(authData)
+  //   .sort()
+  //   .map(key => `${key}=${authData[key]}`)
+  //   .join("\n");
+*/
+const dataCheckString = Object.keys(authData)
+  .filter(key => authData[key] !== undefined && authData[key] !== null)
+  .sort()
+  .map(key => `${key}=${authData[key]}`)
+  .join("\n");
 
-  const dataCheckString = Object.keys(authData)
-    .sort()
-    .map(key => `${key}=${authData[key]}`)
-    .join("\n");
-
+  
   const secretKey = crypto
     .createHash("sha256")
     .update(process.env.BOT_TOKEN)
@@ -125,5 +132,32 @@ app.post("/logout", (req, res) => {
     res.json({ success: true });
   });
 });
+// 🔐 GET ALL USERS
+app.get("/users", async (req, res) => {
+  if (!req.session.loggedIn) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  const users = await User.find().sort({ auth_date: -1 });
+  res.json({ count: users.length, users });
+});
+
+
+// 👤 GET USER BY TELEGRAM ID
+app.get("/users/:telegramId", async (req, res) => {
+  try {
+    const user = await User.findOne({
+      telegram_id: req.params.telegramId,
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 app.listen(3000, () => console.log("Backend running on Render"));
