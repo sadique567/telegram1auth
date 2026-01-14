@@ -1,138 +1,56 @@
 import express from "express";
-import mongoose from "mongoose";
 import crypto from "crypto";
-import cors from "cors";
-import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 
-dotenv.config();
 const app = express();
 
-/* ================= MIDDLEWARE ================= */
-app.use(express.json());
-app.use(cors({ origin: "*" }));
+app.get("/auth/telegram", (req, res) => {
+  console.log("🔥 Telegram hit");
+  console.log("QUERY:", req.query);
 
-/* ================= DATABASE ================= */
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch(err => console.error("❌ Mongo Error", err));
+  const data = { ...req.query };
+  const hash = data.hash;
+  delete data.hash;
 
-/* ================= SCHEMA ================= */
-const telegramSessionSchema = new mongoose.Schema({
-  sessionId: { type: String, required: true, unique: true },
-
-  status: {
-    type: String,
-    enum: ["pending", "approved"],
-    default: "pending"
-  },
-
-  isUsed: { type: Boolean, default: false },
-
-  telegramUser: {
-    id: Number,
-    first_name: String,
-    username: String,
-    photo_url: String
-  },
-
-  token: String,
-
-  createdAt: {
-    type: Date,
-    default: Date.now,
-    expires: 300 // auto delete in 5 minutes
+  if (!hash) {
+    return res.status(400).send("No hash received");
   }
+
+  const secret = crypto
+    .createHash("sha256")
+    .update(process.env.BOT_TOKEN)
+    .digest();
+
+  const checkString = Object.keys(data)
+    .sort()
+    .map(key => `${key}=${data[key]}`)
+    .join("\n");
+
+  const hmac = crypto
+    .createHmac("sha256", secret)
+    .update(checkString)
+    .digest("hex");
+
+  if (hmac !== hash) {
+    console.log("❌ HASH MISMATCH");
+    return res.status(403).send("Invalid Telegram login");
+  }
+
+  console.log("✅ TELEGRAM USER VERIFIED:", data);
+
+  const token = jwt.sign(
+    { telegram_id: data.id, username: data.username },
+    process.env.JWT_SECRET,
+    { expiresIn: "7d" }
+  );
+
+  res.redirect(`eazycart://telegram-login?token=${token}`);
 });
 
-const TelegramSession = mongoose.model(
-  "TelegramSession",
-  telegramSessionSchema
-);
-
-/* ================= API 1 =================
-   CREATE SESSION (Flutter calls this)
-=========================================== */
-app.post("/auth/telegram/session", async (req, res) => {
-  try {
-    const sessionId = crypto.randomBytes(32).toString("hex");
-
-    await TelegramSession.create({ sessionId });
-
-    res.json({
-      success: true,
-      sessionId
-    });
-  } catch (err) {
-    res.status(500).json({ success: false });
-  }
+app.get("/", (req, res) => {
+  res.send("Server running");
 });
 
-/* ================= API 2 =================
-   TELEGRAM BOT CALLS THIS
-=========================================== */
-app.post("/auth/telegram/verify", async (req, res) => {
-  try {
-    const { id, first_name, username, photo_url, sessionId } = req.body;
-
-    const session = await TelegramSession.findOne({
-      sessionId,
-      status: "pending"
-    });
-
-    if (!session) {
-      return res.status(400).json({ success: false });
-    }
-
-    session.status = "approved";
-    session.isUsed = true;
-
-    session.telegramUser = {
-      id,
-      first_name,
-      username,
-      photo_url
-    };
-
-    session.token = jwt.sign(
-      { telegramId: id, username },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    await session.save();
-
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false });
-  }
+app.listen(process.env.PORT || 3000, () => {
+  console.log("🚀 Server started");
 });
-
-/* ================= API 3 =================
-   FLUTTER POLLS THIS
-=========================================== */
-app.get("/auth/telegram/status/:sessionId", async (req, res) => {
-  const session = await TelegramSession.findOne({
-    sessionId: req.params.sessionId
-  });
-
-  if (!session) {
-    return res.json({ status: "invalid" });
-  }
-
-  if (session.status === "approved") {
-    return res.json({
-      status: "approved",
-      token: session.token
-    });
-  }
-
-  return res.json({ status: "pending" });
-});
-
-/* ================= SERVER ================= */
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () =>
-  console.log(`🚀 Server running on port ${PORT}`)
-);
